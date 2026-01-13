@@ -47,15 +47,30 @@ class Router
     {
         $uri = $this->normalize($uri);
 
-        if (!isset($this->routes[$method][$uri])) {
-            http_response_code(404);
-            echo "404 | Route not found";
+        // Try exact match first
+        if (isset($this->routes[$method][$uri])) {
+            $this->executeRoute($method, $uri, $this->routes[$method][$uri]);
             return;
         }
 
+        // Try pattern matching for dynamic routes
+        foreach ($this->routes[$method] as $pattern => $action) {
+            if ($this->matchesPattern($pattern, $uri, $params)) {
+                $this->executeRoute($method, $pattern, $action, $params);
+                return;
+            }
+        }
+
+        http_response_code(404);
+        $renderer = new ViewRenderer();
+        echo $renderer->render('notfound', ['requestedPath' => $uri], 'main');
+    }
+
+    private function executeRoute(string $method, string $pattern, $action, array $params = []): void
+    {
         // Check middleware
-        if (isset($this->middleware[$method][$uri])) {
-            foreach ($this->middleware[$method][$uri] as $middlewareClass) {
+        if (isset($this->middleware[$method][$pattern])) {
+            foreach ($this->middleware[$method][$pattern] as $middlewareClass) {
                 if (is_string($middlewareClass)) {
                     $middleware = new $middlewareClass();
                     $response = $middleware->handle();
@@ -66,18 +81,39 @@ class Router
             }
         }
 
-        $action = $this->routes[$method][$uri];
-
         // Controller@method format
         if (is_array($action)) {
             [$controller, $methodName] = $action;
             $controllerInstance = new $controller();
-            $controllerInstance->$methodName();
+
+            if (!empty($params)) {
+                $controllerInstance->$methodName(...array_values($params));
+            } else {
+                $controllerInstance->$methodName();
+            }
             return;
         }
 
         // Closure
-        call_user_func($action);
+        call_user_func($action, ...$params);
+    }
+
+    private function matchesPattern(string $pattern, string $uri, &$params = []): bool
+    {
+        // Convert pattern like /users/edit/{id} to regex
+        $regex = preg_replace_callback('/{(\w+)}/', function ($matches) {
+            return '(?P<' . $matches[1] . '>\d+)';
+        }, $pattern);
+
+        $regex = '#^' . $regex . '$#';
+
+        if (preg_match($regex, $uri, $matches)) {
+            // Extract named parameters
+            $params = array_filter($matches, fn($key) => is_string($key), ARRAY_FILTER_USE_KEY);
+            return true;
+        }
+
+        return false;
     }
 
     private function normalize(string $uri): string

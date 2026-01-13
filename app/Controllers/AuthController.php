@@ -10,7 +10,7 @@ class AuthController extends Controller
 {
     public function showLogin()
     {
-        $this->view('auth/login');
+        $this->viewPlain('auth/login');
     }
 
     public function login()
@@ -30,7 +30,7 @@ class AuthController extends Controller
         }
 
         Debug::logError("Login failed for: {$username}");
-        $this->view('auth/login', [
+        $this->viewPlain('auth/login', [
             'error' => 'Invalid credentials or account locked'
         ]);
     }
